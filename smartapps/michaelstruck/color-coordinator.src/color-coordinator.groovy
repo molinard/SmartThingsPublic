@@ -1,10 +1,10 @@
 /**
- * 	Color Coordinator 
+ * 	Color Coordinator
  *  Version 1.1.2 - 4/27/18
  *  By Michael Struck
  *
  *  1.0.0 - Initial release
- *  1.1.0 - Fixed issue where master can be part of slaves. This causes a loop that impacts SmartThings. 
+ *  1.1.0 - Fixed issue where master can be part of slaves. This causes a loop that impacts SmartThings.
  *  1.1.1 - Fix NPE being thrown for slave/master inputs being empty.
  *  1.1.2 - Fixed issue with slaves lights flashing but not syncing with master
  *
@@ -31,7 +31,8 @@ definition(
 )
 
 preferences {
-	page name: "mainPage"
+    page(name: "mainPage")
+    page(name: "pageAbout", title: "About ${textAppName()}", install: null, uninstall: true, nextPage: null)
 }
 
 def mainPage() {
@@ -55,19 +56,19 @@ def mainPage() {
 	}
 }
 
-page(name: "pageAbout", title: "About ${textAppName()}", uninstall: true) {
-	section {
-    	paragraph "${textVersion()}\n${textCopyright()}\n\n${textLicense()}\n"
-	}
-	section("Instructions") {
-		paragraph textHelp()
-	}
-    section("Tap button below to remove application"){
+def pageAbout() {
+    dynamicPage(name: "pageAbout", title: "About ${textAppName()}", install: false, uninstall: true, nextPage: null) {
+        section {
+            paragraph "${textVersion()}\n${textCopyright()}\n\n${textLicense()}\n"
+        }
+        section("Instructions") {
+            paragraph textHelp()
+        }
     }
 }
 
-def installed() {   
-	init() 
+def installed() {
+	init()
 }
 
 def updated(){
@@ -91,7 +92,7 @@ def onOffHandler(evt){
 				else slaves?.on()
 		}
 		else {
-		    slaves?.off()  
+		    slaves?.off()
 		}
 		}
 	}
@@ -118,7 +119,7 @@ def getRandomColorMaster(){
     log.debug hueLevel
     log.debug saturationLevel
     master.setColor(newValue)
-    slaves?.setColor(newValue)   
+    slaves?.setColor(newValue)
 }
 
 def tempHandler(evt){
@@ -137,7 +138,7 @@ def tempHandler(evt){
 
 private def textAppName() {
 	def text = "Color Coordinator"
-}	
+}
 
 private def textVersion() {
     def text = "Version 1.1.2 (4/27/2018)"

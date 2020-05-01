@@ -14,8 +14,9 @@ metadata {
 
 		attribute "coLevel", "number"
 
-		fingerprint mfr: "010F", prod: "1201", model: "1000"
-		fingerprint deviceId: "0x0701", inClusters:"0x5E,0x59,0x73,0x80,0x22,0x56,0x31,0x7A,0x5A,0x85,0x84,0x71,0x70,0x8E,0x9C,0x86,0x72"
+		fingerprint mfr: "010F", prod: "1201", model: "1000", deviceJoinName: "Fibaro Carbon Monoxide Sensor"
+		fingerprint mfr: "010F", prod: "1201", model: "1001", deviceJoinName: "Fibaro Carbon Monoxide Sensor"
+		fingerprint mfr: "010F", prod: "1201", deviceJoinName: "Fibaro Carbon Monoxide Sensor"
 	}
 
 	tiles (scale: 2) {
@@ -66,16 +67,6 @@ metadata {
 	}
 
 	preferences {
-
-		input (
-				title: "Fibaro CO Sensor ZW5 manual",
-				description: "Tap to view the manual.",
-				image: "http://manuals.fibaro.com/wp-content/uploads/2017/07/co_icon.png",
-				url: "http://manuals.fibaro.com/content/manuals/en/FGCD-001/FGCD-001-EN-T-v1.1.pdf",
-				type: "href",
-				element: "href"
-		)
-
 		parameterMap().findAll{(it.num as Integer) != 54}.each {
 			input (
 					title: "${it.num}. ${it.title}",
@@ -101,14 +92,14 @@ metadata {
 }
 
 def installed() {
-	sendEvent(name: "checkInterval", value: 86520, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
+	sendEvent(name: "checkInterval", value: 12 * 60 * 60 + 8 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
 }
 
 def updated() {
 	if ( state.lastUpdated && (now() - state.lastUpdated) < 500 ) return
 	logging("${device.displayName} - Executing updated()","info")
 
-	if ( (settings.zwaveNotifications as Integer) >= 2 ) {
+	if ( (settings.zwaveNotifications as Integer) >= 2 || !settings.zwaveNotifications) { //before any configuration change, settings have 'null' values
 		sendEvent(name: "temperatureAlarm", value: "cleared", displayed: false)
 	} else {
 		sendEvent(name: "temperatureAlarm", value: null, displayed: false)
@@ -122,6 +113,12 @@ def configure() {
 	def cmds = []
 	sendEvent(name: "coLevel", unit: "ppm", value: 0, displayed: true)
 	sendEvent(name: "carbonMonoxide", value: "clear", displayed: "true")
+	sendEvent(name: "tamper", value: "clear", displayed: "true")
+	sendEvent(name: "temperatureAlarm", value: "cleared", displayed: false)
+	// turn on tamper and temperature alarm reporting
+	cmds << zwave.configurationV2.configurationSet(scaledConfigurationValue: 3, parameterNumber: 2, size: 1)
+	// turn on acoustic signal on exceeding the temperature alarm
+	cmds << zwave.configurationV2.configurationSet(scaledConfigurationValue: 2, parameterNumber: 4, size: 1)
 	cmds << zwave.batteryV1.batteryGet()
 	cmds << zwave.sensorMultilevelV5.sensorMultilevelGet(sensorType: 1)
 	cmds << zwave.wakeUpV1.wakeUpNoMoreInformation()
@@ -132,7 +129,7 @@ private syncStart() {
 	boolean syncNeeded = false
 	parameterMap().each {
 		if(settings."$it.key" != null || it.num == 54) {
-			if (state."$it.key" == null) { state."$it.key" = [value: null, state: "synced"] }
+			if (state."$it.key" == null) { state."$it.key" = [value: "$it.def", state: "synced"] }
 			if (state."$it.key".value != (settings."$it.key" as Integer) || state."$it.key".state != "synced" ) {
 				state."$it.key".value = (settings."$it.key" as Integer)
 				state."$it.key".state = "notSynced"
@@ -147,7 +144,7 @@ private syncStart() {
 	}
 }
 
-private syncNext() {
+def syncNext() {
 	logging("${device.displayName} - Executing syncNext()","info")
 	def cmds = []
 	for ( param in parameterMap() ) {
@@ -167,7 +164,7 @@ private syncNext() {
 	}
 }
 
-private syncCheck() {
+def syncCheck() {
 	logging("${device.displayName} - Executing syncCheck()","info")
 	def failed = []
 	def incorrect = []
@@ -207,7 +204,7 @@ def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpNotification cmd) {
 
 	cmds << zwave.batteryV1.batteryGet()
 	cmds << zwave.sensorMultilevelV5.sensorMultilevelGet()
-	runIn(1,"syncNext")
+	runIn(1, "syncNext")
 	[response(encapSequence(cmds,1000))]
 }
 
@@ -230,7 +227,7 @@ def zwaveEvent(physicalgraph.zwave.commands.applicationstatusv1.ApplicationRejec
 
 def zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmReport cmd) {
 	logging("${device.displayName} - AlarmReport received, zwaveAlarmType: ${cmd.zwaveAlarmType}, zwaveAlarmEvent: ${cmd.zwaveAlarmEvent}", "info")
-	def lastTime = new Date().format("yyyy MMM dd EEE h:mm:ss a", location.timeZone)
+	def lastTime = location.timeZone ? new Date().format("yyyy MMM dd EEE h:mm:ss a", location.timeZone) : new Date().format("yyyy MMM dd EEE h:mm:ss")
 	switch (cmd.zwaveAlarmType) {
 		case 2:
 			switch (cmd.zwaveAlarmEvent) {
@@ -287,7 +284,15 @@ def zwaveEvent(physicalgraph.zwave.commands.sensormultilevelv5.SensorMultilevelR
 
 def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
 	logging("${device.displayName} - BatteryReport received, value: ${cmd.batteryLevel}", "info")
-	sendEvent(name: "battery", value: cmd.batteryLevel.toString(), unit: "%", displayed: true)
+	def map = [name: "battery", unit: "%"]
+	if (cmd.batteryLevel == 0xFF) {
+		map.value = 1
+		map.descriptionText = "${device.displayName} has a low battery"
+		map.isStateChange = true
+	} else {
+		map.value = cmd.batteryLevel
+	}
+	sendEvent(map)
 }
 
 def parse(String description) {
@@ -334,6 +339,12 @@ def zwaveEvent(physicalgraph.zwave.commands.crc16encapv1.Crc16Encap cmd) {
 	}
 }
 
+def zwaveEvent(physicalgraph.zwave.Command cmd) {
+	// Handles all Z-Wave commands we aren't interested in
+	log.debug "Unhandled: ${cmd.toString()}"
+	[:]
+}
+
 private logging(text, type = "debug") {
 	if (settings.logging == "true") {
 		log."$type" text
@@ -353,7 +364,7 @@ private crcEncap(physicalgraph.zwave.Command cmd) {
 private encap(physicalgraph.zwave.Command cmd) {
 	if (zwaveInfo.zw.contains("s")) {
 		secEncap(cmd)
-	} else if (zwaveInfo.cc.contains("56")){
+	} else if (zwaveInfo?.cc?.contains("56")){
 		crcEncap(cmd)
 	} else {
 		logging("${device.displayName} - no encapsulation supported for command: $cmd","info")
@@ -376,7 +387,7 @@ private parameterMap() {[
 				2: "Exceeding the temperature",
 				3: "Both actions enabled"
 		],
-		 def: "0", title: "Z-Wave notifications",
+		 def: "3", title: "Z-Wave notifications",
 		 descr: "This parameter allows to set actions which result in sending notifications to the HUB"],
 		[key: "highTempTreshold", num: 22, size: 1, type: "enum", options: [
 				50: "120 °F / 50°C",

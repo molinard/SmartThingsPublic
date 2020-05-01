@@ -12,16 +12,19 @@
  *
  */
 metadata {
-	definition(name: "Z-Wave Switch Secure", namespace: "smartthings", author: "SmartThings", ocfDeviceType: "oic.d.switch", runLocally: true, minHubCoreVersion: '000.019.00012', executeCommandsLocally: false) {
+	definition(name: "Z-Wave Switch Secure", namespace: "smartthings", author: "SmartThings", ocfDeviceType: "oic.d.switch", runLocally: true, minHubCoreVersion: '000.019.00012', executeCommandsLocally: false, genericHandler: "Z-Wave") {
 		capability "Switch"
 		capability "Refresh"
 		capability "Polling"
 		capability "Actuator"
 		capability "Sensor"
+		capability "Health Check"
 
 		fingerprint inClusters: "0x25,0x98"
 		fingerprint deviceId: "0x10", inClusters: "0x98"
 		fingerprint mfr: "0086", prod: "0003", model: "008B", deviceJoinName: "Aeon Labs Nano Switch"
+		fingerprint mfr: "0086", prod: "0103", model: "008B", deviceJoinName: "Aeon Labs Nano Switch"
+		fingerprint mfr: "027A", prod: "A000", model: "A001", deviceJoinName: "Zooz ZEN26 Switch"
 	}
 
 	simulator {
@@ -44,6 +47,11 @@ metadata {
 		main "switch"
 		details(["switch", "refresh"])
 	}
+}
+
+def installed() {
+	// Device-Watch simply pings if no device events received for checkInterval duration of 32min = 2 * 15min + 2min lag time
+	sendEvent(name: "checkInterval", value: 2 * 15 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
 }
 
 def updated() {
@@ -106,6 +114,10 @@ def off() {
 		zwave.basicV1.basicSet(value: 0x00),
 		zwave.basicV1.basicGet()
 	])
+}
+
+def ping() {
+	refresh()
 }
 
 def poll() {
